@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-s02: Tool Use — 在 s01 基础上新增 4 个工具 + 分发映射。
+s02: Tool Use — OpenAI SDK version
 
-运行: python s02_tool_use/code.py
-需要: pip install anthropic python-dotenv + .env 中配置 ANTHROPIC_API_KEY
+在 s01 基础上新增 4 个工具 + 分发映射，使用 OpenAI SDK 实现。
 
-本文件 = s01 的全部代码 + 以下新增:
+运行: python s02_tool_use/code_openai.py
+需要: pip install openai python-dotenv + .env 中配置 OPENAI_API_KEY
+
+本文件 = s01_openai 的全部代码 + 以下新增:
   + run_read / run_write / run_edit / run_glob 四个工具实现
   + TOOL_HANDLERS 分发映射（替代 s01 中硬编码的 run_bash 调用）
   + safe_path 路径安全校验
 
-循环本身（agent_loop）与 s01 完全一致。
+循环本身（agent_loop）与 s01_openai 完全一致。
 """
 
-import os, subprocess, sys
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 # 将仓库根目录加入 sys.path，以便导入 llm_tracer
@@ -30,22 +35,23 @@ try:
 except ImportError:
     pass
 
-from anthropic import Anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 from llm_tracer import LLMTracer, wrap_client
 
 load_dotenv(override=True)
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    base_url=os.getenv("OPENAI_BASE_URL"),
+)
 
 # 初始化 tracer，自动包装 client —— agent_loop 无需任何改动
 tracer = LLMTracer(name="s02_tool_use", output_dir=str(WORKDIR / ".traces"))
 client = wrap_client(client, tracer)
 
-MODEL = os.environ["MODEL_ID"]
+MODEL = os.environ["OPENAI_MODEL_ID"]
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain."
 
@@ -127,19 +133,26 @@ def run_glob(pattern: str) -> str:
 
 # ═══════════════════════════════════════════════════════════
 #  NEW in s02: 工具定义（s01 只有一个 bash，现在扩展到 5 个）
+#  OpenAI 格式：每个工具包裹在 {"type": "function", "function": {...}}
+#  且 schema 字段名从 input_schema 变为 parameters
 # ═══════════════════════════════════════════════════════════
 
 TOOLS = [
-    {"name": "bash", "description": "Run a shell command.",
-     "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
-    {"name": "read_file", "description": "Read file contents.",
-     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["path"]}},
-    {"name": "write_file", "description": "Write content to a file.",
-     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
-    {"name": "edit_file", "description": "Replace exact text in a file once.",
-     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
-    {"name": "glob", "description": "Find files matching a glob pattern.",
-     "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}},
+    {"type": "function", "function": {
+        "name": "bash", "description": "Run a shell command.",
+        "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {
+        "name": "read_file", "description": "Read file contents.",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["path"]}}},
+    {"type": "function", "function": {
+        "name": "write_file", "description": "Write content to a file.",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
+    {"type": "function", "function": {
+        "name": "edit_file", "description": "Replace exact text in a file once.",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}}},
+    {"type": "function", "function": {
+        "name": "glob", "description": "Find files matching a glob pattern.",
+        "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
 ]
 
 # ═══════════════════════════════════════════════════════════
@@ -153,50 +166,74 @@ TOOL_HANDLERS = {
 
 
 # ═══════════════════════════════════════════════════════════
-#  agent_loop — 与 s01 结构完全一致，只改了工具执行那部分
-#  s01: output = run_bash(block.input["command"])
-#  s02: output = TOOL_HANDLERS[block.name](**block.input)
+#  agent_loop — 与 s01_openai 结构一致，只改了工具执行那部分
+#  s01: output = run_bash(args["command"])
+#  s02: output = TOOL_HANDLERS[call.function.name](**args)
 # ═══════════════════════════════════════════════════════════
 
 def agent_loop(messages: list):
     while True:
-        response = client.messages.create(
-            model=MODEL, system=SYSTEM, messages=messages,
-            tools=TOOLS, max_tokens=8000,
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "system", "content": SYSTEM}] + messages,
+            tools=TOOLS,
+            max_tokens=8000,
         )
-        messages.append({"role": "assistant", "content": response.content})
 
-        if response.stop_reason != "tool_use":
+        msg = response.choices[0].message
+
+        # Append assistant turn（含 tool_calls）
+        messages.append({
+            "role": "assistant",
+            "content": msg.content,
+            "tool_calls": [
+                {
+                    "id": c.id,
+                    "type": "function",
+                    "function": {
+                        "name": c.function.name,
+                        "arguments": c.function.arguments,
+                    },
+                }
+                for c in (msg.tool_calls or [])
+            ] if msg.tool_calls else None,
+        })
+
+        if not msg.tool_calls:
             return
 
         results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                print(f"\033[33m> {block.name}\033[0m")
-                handler = TOOL_HANDLERS.get(block.name)
-                output = handler(**block.input) if handler else f"Unknown: {block.name}"
-                print(str(output)[:200])
-                results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
+        for call in msg.tool_calls:
+            print(f"\033[33m> {call.function.name}\033[0m")
+            args = json.loads(call.function.arguments)
+            handler = TOOL_HANDLERS.get(call.function.name)
+            output = handler(**args) if handler else f"Unknown: {call.function.name}"
+            print(str(output)[:200])
+            results.append({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": output,
+            })
 
-        messages.append({"role": "user", "content": results})
+        messages.extend(results)
 
 
 if __name__ == "__main__":
-    print("s02: Tool Use — 在 s01 基础上加了 4 个工具")
+    print("s02: Tool Use — 在 s01 基础上加了 4 个工具 (OpenAI SDK)")
     print("输入问题，回车发送。输入 q 退出。")
     print(f"📝 Trace 文件: {tracer.trace_file}\n")
 
     history = []
     while True:
         try:
-            query = input("\033[36ms02 >> \033[0m")
+            query = input("\033[36ms02(openai) >> \033[0m")
         except (EOFError, KeyboardInterrupt):
             break
         if query.strip().lower() in ("q", "exit", ""):
             break
         history.append({"role": "user", "content": query})
         agent_loop(history)
-        for block in history[-1]["content"]:
-            if getattr(block, "type", None) == "text":
-                print(block.text)
+        last_msg = history[-1]
+        if last_msg.get("role") == "assistant" and last_msg.get("content"):
+            print(last_msg["content"])
         print()

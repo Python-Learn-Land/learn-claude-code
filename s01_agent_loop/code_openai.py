@@ -38,6 +38,13 @@ Usage:
 import json
 import os
 import subprocess
+import sys
+from pathlib import Path
+
+# 将仓库根目录加入 sys.path，以便导入 llm_tracer
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 try:
     import readline
@@ -51,6 +58,7 @@ except ImportError:
 
 from openai import OpenAI
 from dotenv import load_dotenv
+from llm_tracer import LLMTracer, wrap_client
 
 load_dotenv(override=True)
 
@@ -58,6 +66,10 @@ client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
     base_url=os.getenv("OPENAI_BASE_URL"),
 )
+
+# 初始化 tracer，自动包装 client —— agent_loop 无需任何改动
+tracer = LLMTracer(name="s01_agent_loop", output_dir=str(Path.cwd() / ".traces"))
+client = wrap_client(client, tracer)
 MODEL = os.environ["OPENAI_MODEL_ID"]
 
 SYSTEM = f"You are a coding agent at {os.getcwd()}. Use bash to solve tasks. Act, don't explain."
@@ -153,7 +165,8 @@ def agent_loop(messages: list):
 # ── Entry point ──────────────────────────────────────────
 if __name__ == "__main__":
     print("s01: Agent Loop (OpenAI SDK)")
-    print("输入问题，回车发送。输入 q 退出。\n")
+    print("输入问题，回车发送。输入 q 退出。")
+    print(f"📝 Trace 文件: {tracer.trace_file}\n")
 
     history = []
     while True:
