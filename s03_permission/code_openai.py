@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-s03_permission.py - Permission System
+s03: Permission System — OpenAI SDK version
 
-Three gates inserted before tool execution:
+三层权限门控，使用 OpenAI SDK 实现：
 
-    Gate 1: Hard deny list (rm -rf /, sudo, ...)
-    Gate 2: Rule matching (write outside workspace? destructive cmd?)
-    Gate 3: User approval (pause and wait for confirmation)
+    Gate 1: 硬拒绝列表 (rm -rf /, sudo, ...)
+    Gate 2: 规则匹配 (写到工作区外? 破坏性命令?)
+    Gate 3: 用户确认 (暂停等待人工确认)
 
     +-------+    +--------+    +--------+    +--------+    +------+
     | Tool  | -> | Gate 1 | -> | Gate 2 | -> | Gate 3 | -> | Exec |
@@ -16,18 +16,21 @@ Three gates inserted before tool execution:
          v            v             v             v
       (normal)     (blocked)    (ask user)   (user says no?)
 
-Only one line added to the agent loop:
+在 agent_loop 中只插入了一行：
 
-    if not check_permission(block):
+    if not check_permission(call):
         continue
 
-Builds on s02 (multi-tool). Usage:
+基于 s02 (多工具)。运行方式：
 
-    python s03_permission/code.py
-    Needs: pip install anthropic python-dotenv + ANTHROPIC_API_KEY in .env
+    python s03_permission/code_openai.py
+    需要: pip install openai python-dotenv + .env 中配置 OPENAI_API_KEY
 """
 
-import os, subprocess, sys
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 # 将仓库根目录加入 sys.path，以便导入 llm_tracer
@@ -44,23 +47,25 @@ try:
 except ImportError:
     pass
 
-from anthropic import Anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 from llm_tracer import LLMTracer, wrap_client
 
 load_dotenv(override=True)
-if os.getenv("ANTHROPIC_BASE_URL"):
-    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    base_url=os.getenv("OPENAI_BASE_URL"),
+)
 
 # 初始化 tracer，自动包装 client —— agent_loop 无需任何改动
 tracer = LLMTracer(name="s03_permission", output_dir=str(WORKDIR / ".traces"))
 client = wrap_client(client, tracer)
 
-MODEL = os.environ["MODEL_ID"]
+MODEL = os.environ["OPENAI_MODEL_ID"]
 
+# 系统提示词改为中文
 SYSTEM = f"你是一个编程助手，工作目录是 {WORKDIR}。所有破坏性操作都需要用户确认后才能执行。"
 
 
@@ -130,20 +135,25 @@ def run_glob(pattern: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
-#  FROM s02 (unchanged): Tool Definitions & Dispatch
+#  FROM s02: Tool Definitions (OpenAI 格式)
 # ═══════════════════════════════════════════════════════════
 
 TOOLS = [
-    {"name": "bash", "description": "运行 shell 命令。",
-     "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
-    {"name": "read_file", "description": "读取文件内容。",
-     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["path"]}},
-    {"name": "write_file", "description": "写入内容到文件。",
-     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
-    {"name": "edit_file", "description": "替换文件中的指定文本（仅替换第一次出现）。",
-     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
-    {"name": "glob", "description": "查找匹配 glob 模式的文件。",
-     "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}},
+    {"type": "function", "function": {
+        "name": "bash", "description": "运行 shell 命令。",
+        "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {
+        "name": "read_file", "description": "读取文件内容。",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["path"]}}},
+    {"type": "function", "function": {
+        "name": "write_file", "description": "写入内容到文件。",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
+    {"type": "function", "function": {
+        "name": "edit_file", "description": "替换文件中的指定文本（仅替换第一次出现）。",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}}},
+    {"type": "function", "function": {
+        "name": "glob", "description": "查找匹配 glob 模式的文件。",
+        "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}}},
 ]
 
 TOOL_HANDLERS = {
@@ -192,72 +202,98 @@ def ask_user(tool_name: str, args: dict, reason: str) -> str:
 
 
 # Pipeline: 三层门控串联
-def check_permission(block) -> bool:
-    if block.name == "bash":
-        reason = check_deny_list(block.input.get("command", ""))
+# OpenAI 版本：接收 tool_call 对象而非 block
+def check_permission(tool_name: str, args: dict) -> bool:
+    if tool_name == "bash":
+        reason = check_deny_list(args.get("command", ""))
         if reason:
             print(f"\n\033[31m⛔ {reason}\033[0m")
             return False
-    reason = check_rules(block.name, block.input)
+    reason = check_rules(tool_name, args)
     if reason:
-        decision = ask_user(block.name, block.input, reason)
+        decision = ask_user(tool_name, args, reason)
         if decision == "deny":
             return False
     return True
 
 
 # ═══════════════════════════════════════════════════════════
-#  agent_loop — same as s02, with check_permission() inserted
+#  agent_loop — 与 s02_openai 结构一致，插入 check_permission()
 # ═══════════════════════════════════════════════════════════
 
 def agent_loop(messages: list):
     while True:
-        response = client.messages.create(
-            model=MODEL, system=SYSTEM, messages=messages,
-            tools=TOOLS, max_tokens=8000,
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "system", "content": SYSTEM}] + messages,
+            tools=TOOLS,
+            max_tokens=8000,
         )
-        messages.append({"role": "assistant", "content": response.content})
 
-        if response.stop_reason != "tool_use":
+        msg = response.choices[0].message
+
+        # Append assistant turn（含 tool_calls）
+        messages.append({
+            "role": "assistant",
+            "content": msg.content,
+            "tool_calls": [
+                {
+                    "id": c.id,
+                    "type": "function",
+                    "function": {
+                        "name": c.function.name,
+                        "arguments": c.function.arguments,
+                    },
+                }
+                for c in (msg.tool_calls or [])
+            ] if msg.tool_calls else None,
+        })
+
+        if not msg.tool_calls:
             return
 
         results = []
-        for block in response.content:
-            if block.type != "tool_use":
+        for call in msg.tool_calls:
+            print(f"\033[36m> {call.function.name}\033[0m")
+            args = json.loads(call.function.arguments)
+
+            # s03 change: 权限检查
+            if not check_permission(call.function.name, args):
+                results.append({
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": "权限被拒绝。",
+                })
                 continue
 
-            print(f"\033[36m> {block.name}\033[0m")
-
-            # s03 change: run through permission pipeline before executing
-            if not check_permission(block):
-                results.append({"type": "tool_result", "tool_use_id": block.id,
-                                "content": "权限被拒绝。"})
-                continue
-
-            handler = TOOL_HANDLERS.get(block.name)
-            output = handler(**block.input) if handler else f"Unknown: {block.name}"
+            handler = TOOL_HANDLERS.get(call.function.name)
+            output = handler(**args) if handler else f"未知工具: {call.function.name}"
             print(str(output)[:200])
-            results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
+            results.append({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": output,
+            })
 
-        messages.append({"role": "user", "content": results})
+        messages.extend(results)
 
 
 if __name__ == "__main__":
-    print("s03: Permission")
+    print("s03: 权限系统 — 在 s02 基础上增加了三层权限门控 (OpenAI SDK)")
     print("输入问题，回车发送。输入 q 退出。")
     print(f"📝 Trace 文件: {tracer.trace_file}\n")
 
     history = []
     while True:
         try:
-            query = input("\033[36ms03 >> \033[0m")
+            query = input("\033[36ms03(openai) >> \033[0m")
         except (EOFError, KeyboardInterrupt):
             break
         if query.strip().lower() in ("q", "exit", ""):
             break
         history.append({"role": "user", "content": query})
         agent_loop(history)
-        for block in history[-1]["content"]:
-            if getattr(block, "type", None) == "text":
-                print(block.text)
+        last_msg = history[-1]
+        if last_msg.get("role") == "assistant" and last_msg.get("content"):
+            print(last_msg["content"])
         print()
