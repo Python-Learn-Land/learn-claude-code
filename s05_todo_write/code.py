@@ -28,8 +28,13 @@ Run: python s05_todo_write/code.py
 Needs: pip install anthropic python-dotenv + ANTHROPIC_API_KEY in .env
 """
 
-import os, subprocess
+import os, subprocess, sys
 from pathlib import Path
+
+# 将仓库根目录加入 sys.path，以便导入 llm_tracer
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 try:
     import readline
@@ -39,6 +44,7 @@ except ImportError:
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from llm_tracer import LLMTracer, wrap_client
 
 load_dotenv(override=True)
 if os.getenv("ANTHROPIC_BASE_URL"):
@@ -46,6 +52,11 @@ if os.getenv("ANTHROPIC_BASE_URL"):
 
 WORKDIR = Path.cwd()
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
+
+# 初始化 tracer，自动包装 client —— agent_loop 无需任何改动
+tracer = LLMTracer(name="s05_todo_write", output_dir=str(WORKDIR / ".traces"))
+client = wrap_client(client, tracer)
+
 MODEL = os.environ["MODEL_ID"]
 CURRENT_TODOS: list[dict] = []
 
@@ -268,7 +279,8 @@ def agent_loop(messages: list):
 
 if __name__ == "__main__":
     print("s05: TodoWrite — plan before execute, nag if you forget")
-    print("Type a question, press Enter. Type q to quit.\n")
+    print("Type a question, press Enter. Type q to quit.")
+    print(f"📝 Trace file: {tracer.trace_file}\n")
 
     history = []
     while True:
