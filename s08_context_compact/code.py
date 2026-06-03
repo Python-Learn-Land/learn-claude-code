@@ -32,8 +32,13 @@ Builds on s07 (skill loading). Usage:
     Needs: pip install anthropic python-dotenv + ANTHROPIC_API_KEY in .env
 """
 
-import os, subprocess, json, time
+import os, subprocess, json, time, sys
 from pathlib import Path
+
+# 将仓库根目录加入 sys.path，以便导入 llm_tracer
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 try:
     import readline
@@ -43,6 +48,7 @@ except ImportError:
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from llm_tracer import LLMTracer, wrap_client
 
 load_dotenv(override=True)
 if os.getenv("ANTHROPIC_BASE_URL"): os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
@@ -52,6 +58,11 @@ SKILLS_DIR = WORKDIR / "skills"
 TRANSCRIPT_DIR = WORKDIR / ".transcripts"
 TOOL_RESULTS_DIR = WORKDIR / ".task_outputs" / "tool-results"
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
+
+# 初始化 tracer，自动包装 client —— agent_loop 无需任何改动
+tracer = LLMTracer(name="s08_context_compact", output_dir=str(WORKDIR / ".traces"))
+client = wrap_client(client, tracer)
+
 MODEL = os.environ["MODEL_ID"]
 CURRENT_TODOS: list[dict] = []
 
@@ -456,7 +467,8 @@ def agent_loop(messages: list):
 
 if __name__ == "__main__":
     print("s08: Context Compact — four-layer compaction pipeline")
-    print("输入问题，回车发送。输入 q 退出。\n")
+    print("输入问题，回车发送。输入 q 退出。")
+    print(f"📝 Trace file: {tracer.trace_file}\n")
     history = []
     while True:
         try: query = input("\033[36ms08 >> \033[0m")
