@@ -12,6 +12,7 @@ import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.message.MessagePart
 import io.github.cdimascio.dotenv.Dotenv
 import kotlinx.coroutines.runBlocking
+import llm_tracer.LLMTracer
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -79,10 +80,20 @@ fun main() = runBlocking {
         tool(BashToolSet()::bash)
     }
 
+    // 初始化 tracer —— functionalStrategy 内手动记录 LLM 调用
+    val tracer = LLMTracer(name = "s01_agent_loop", outputDir = ".traces")
+
     // Koog functionalStrategy: 显式控制 ReAct 循环
     val strategy = functionalStrategy<String, String>("s01AgentLoop") { input ->
+        tracer.logText("User input: $input")
+
         // 第 1 轮：发送用户输入
         var response = requestLLM(input)
+        tracer.logTurn(
+            request = mapOf("input" to input),
+            response = response,
+            note = "Koog-initial"
+        )
 
         // 检查是否有 tool_calls（对应 Python code.py 第 109 行）
         var toolCalls = response.parts.filterIsInstance<MessagePart.Tool.Call>()
@@ -95,9 +106,15 @@ fun main() = runBlocking {
 
             // 执行工具（对应 Python code.py 第 114-123 行）
             val results = executeTools(toolCalls)
+            tracer.logMessage(role = "tool", content = results, note = "execution")
 
             // 反馈结果给 LLM，获取下一轮（对应 Python code.py 第 126 行）
             response = sendToolResults(results)
+            tracer.logTurn(
+                request = mapOf("toolResults" to results),
+                response = response,
+                note = "Koog-followup"
+            )
 
             // 再次检查（循环继续或结束）
             toolCalls = response.parts.filterIsInstance<MessagePart.Tool.Call>()
@@ -131,7 +148,8 @@ fun main() = runBlocking {
         .build()
 
     println("s01: Agent Loop (Kotlin + Koog)")
-    println("Enter a query, or 'q' to quit.\n")
+    println("Enter a query, or 'q' to quit.")
+    println("📝 Trace 文件: ${tracer.traceFile}\n")
 
     while (true) {
         print("[36ms01(kt) >> [0m")
