@@ -127,6 +127,12 @@ cp .env.example .env
 
 ```sh
 python s01_agent_loop/code.py
+# または OpenAI SDK を使用
+python s01_agent_loop/code_openai.py
+# または LangChain を使用
+python s01_agent_loop/code_langchain.py
+# または LangGraph を使用
+python s01_agent_loop/code_langgraph.py
 ```
 
 以下のプロンプトを試してみよう：
@@ -204,4 +210,4 @@ CC の `StreamingToolExecutor`（`query.ts:561`）は、モデルがまだ生成
 
 </details>
 
-<!-- translation-sync: zh@v1, en@v1, ja@v1 -->
+<!-- translation-sync: zh@v2, en@v2, ja@v2 -->

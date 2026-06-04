@@ -16,6 +16,18 @@
 
 ### Python 课程
 
+仓库已配置虚拟环境，位于 `.venv/`。运行 Python 课程前请先激活它：
+
+```bash
+# macOS / Linux
+source .venv/bin/activate
+
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+```
+
+之后安装依赖并运行课程：
+
 ```bash
 # 安装依赖
 pip install -r requirements.txt

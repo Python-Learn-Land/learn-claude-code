@@ -127,6 +127,12 @@ cp .env.example .env
 
 ```sh
 python s01_agent_loop/code.py
+# 或使用 OpenAI SDK
+python s01_agent_loop/code_openai.py
+# 或使用 LangChain
+python s01_agent_loop/code_langchain.py
+# 或使用 LangGraph
+python s01_agent_loop/code_langgraph.py
 ```
 
 试试这些 prompt：
@@ -204,4 +210,4 @@ CC 的 `StreamingToolExecutor`（`query.ts:561`）让工具在模型还在生成
 
 </details>
 
-<!-- translation-sync: zh@v1, en@v0, ja@v0 -->
+<!-- translation-sync: zh@v2, en@v2, ja@v2 -->

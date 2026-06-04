@@ -127,6 +127,12 @@ cp .env.example .env
 
 ```sh
 python s01_agent_loop/code.py
+# or use the OpenAI SDK
+python s01_agent_loop/code_openai.py
+# or use LangChain
+python s01_agent_loop/code_langchain.py
+# or use LangGraph
+python s01_agent_loop/code_langgraph.py
 ```
 
 Try these prompts:
@@ -204,4 +210,4 @@ CC's `StreamingToolExecutor` (`query.ts:561`) allows tools to begin parallel exe
 
 </details>
 
-<!-- translation-sync: zh@v1, en@v1, ja@v1 -->
+<!-- translation-sync: zh@v2, en@v2, ja@v2 -->
