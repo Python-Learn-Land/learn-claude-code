@@ -6,8 +6,9 @@
 
 这是一个 AI Agent  Harness 工程教学仓库，包含 20 个渐进式课程（`s01_agent_loop` 到 `s20_comprehensive`），每个课程围绕一个不变的 Agent 核心循环添加一种机制。每个课程都是一个独立的、可直接运行的 Python 脚本。
 
-仓库存在**两条教程轨道**：
-- **当前（主轨道）：** 根目录下的 `s01_*` 到 `s20_*` 文件夹。每个文件夹包含 `README.md`（中文原文）、`README.en.md`、`README.ja.md`、`code.py` 和 `images/`。
+仓库存在**三条教程轨道**：
+- **Python（主轨道）：** 根目录下的 `s01_*` 到 `s20_*` 文件夹。每个文件夹包含 `README.md`（中文原文）、`README.en.md`、`README.ja.md`、`code.py` 和 `images/`。
+- **Kotlin（新增）：** `kotlin/` 目录，使用 JetBrains [Koog](https://www.jetbrains.com/koog/) 框架实现相同的 20 个章节。与 Python 轨道一一对应。
 - **旧版（过渡中）：** `agents/`（12 个可运行的 Python 文件）、`docs/`（`en/`、`zh/`、`ja/` 下的 12 篇 Markdown 教程）和 `web/`（渲染旧版轨道）。这些内容保留给现有读者和 web 平台使用。
 
 当前轨道的终点是 `s20_comprehensive/code.py`，它将所有机制整合到一个循环中。
@@ -43,6 +44,29 @@ python s20_comprehensive/code.py
 # 运行所有测试
 python -m pytest tests/ -q
 ```
+
+### Kotlin 课程（Koog）
+
+```bash
+cd kotlin
+
+# 首次构建（自动下载 Gradle wrapper）
+./gradlew build
+
+# 配置 API 密钥
+cp src/main/resources/.env.example .env
+# 编辑 .env：设置 ANTHROPIC_API_KEY 和 MODEL_ID
+
+# 运行单个课程
+./gradlew runS01
+# 或指定 main class
+./gradlew run -DmainClass=s01_agent_loop.CodeKt
+
+# 运行全部测试
+./gradlew test
+```
+
+Kotlin 轨道与 Python 主轨道一一对应：`kotlin/src/main/kotlin/s01_agent_loop/Code.kt` 对应 `s01_agent_loop/code.py`。
 
 ### Web 平台
 
