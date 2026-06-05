@@ -839,14 +839,17 @@ def agent_loop(messages: list, context: dict):
                                 "tool_use_id": block.id,
                                 "content": output})
 
-        # Merge background notifications + tool results into one user message
-        user_content = []
+        # Append tool results first (must immediately follow tool_use blocks)
+        messages.append({"role": "user", "content": results})
+
+        # Then inject background notifications as separate user messages
         bg_notifications = collect_background_results()
         if bg_notifications:
             for notif in bg_notifications:
-                user_content.append({"type": "text", "text": notif})
-        user_content.extend(results)
-        messages.append({"role": "user", "content": user_content})
+                messages.append({"role": "user",
+                                 "content": [{"type": "text", "text": notif}]})
+            print(f"  \033[32m[inject] {len(bg_notifications)} background "
+                  f"notification(s)\033[0m")
         context = update_context(context, messages)
         system = get_system_prompt(context)
 

@@ -34,6 +34,16 @@ except ImportError:
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+# ── Logger (optional: use log_print() for file+console logging) ──
+
+try:
+    import sys
+    sys.path.insert(0, str(Path.cwd()))
+    from agent_logger import setup_logger, log_print
+    setup_logger(name="s13")
+except Exception:
+    log_print = print  # fallback: log_print behaves like plain print
+
 load_dotenv(override=True)
 if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
@@ -423,10 +433,12 @@ def agent_loop(messages: list, context: dict):
     system = get_system_prompt(context)
     while True:
         try:
+            log_print(f"Agent request: {messages}")
             response = client.messages.create(
                 model=MODEL, system=system, messages=messages,
                 tools=TOOLS, max_tokens=8000)
         except Exception as e:
+            log_print(f"Agent error: {type(e).__name__}: {e}")
             messages.append({"role": "assistant", "content": [
                 {"type": "text",
                  "text": f"[Error] {type(e).__name__}: {e}"}]})
@@ -434,6 +446,7 @@ def agent_loop(messages: list, context: dict):
 
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
+            log_print(f"Agent stopped at {response.stop_reason}")
             return
 
         results = []
@@ -456,16 +469,17 @@ def agent_loop(messages: list, context: dict):
                                 "tool_use_id": block.id,
                                 "content": output})
 
-        # Inject background notifications + tool results in one user message
-        user_content = []
+        # Append tool results first (must immediately follow tool_use blocks)
+        messages.append({"role": "user", "content": results})
+
+        # Then inject background notifications as separate user messages
         bg_notifications = collect_background_results()
         if bg_notifications:
             for notif in bg_notifications:
-                user_content.append({"type": "text", "text": notif})
+                messages.append({"role": "user",
+                                 "content": [{"type": "text", "text": notif}]})
             print(f"  \033[32m[inject] {len(bg_notifications)} background "
                   f"notification(s)\033[0m")
-        user_content.extend(results)
-        messages.append({"role": "user", "content": user_content})
         context = update_context(context, messages)
         system = get_system_prompt(context)
 
@@ -478,13 +492,17 @@ if __name__ == "__main__":
     while True:
         try:
             query = input("\033[36ms13 >> \033[0m")
+            log_print(query)
         except (EOFError, KeyboardInterrupt):
+            log_print("User interrupted")
             break
         if query.strip().lower() in ("q", "exit", ""):
+            log_print("User quit")
             break
         history.append({"role": "user", "content": query})
         agent_loop(history, context)
         context = update_context(context, history)
+        log_print(f"Agent response: {history[-1]['content']}")
         for block in history[-1]["content"]:
             if getattr(block, "type", None) == "text":
                 print(block.text)
