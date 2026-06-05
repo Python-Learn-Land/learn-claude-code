@@ -24,8 +24,16 @@ llm_tracer.py — 轻量级 LLM 调用追踪器
 import json
 import datetime
 import os
+import sys
 from pathlib import Path
 from typing import Any
+
+# ── Optional: integrate with agent_logger ──
+try:
+    sys.path.insert(0, str(Path.cwd()))
+    from agent_logger import log_print
+except Exception:
+    log_print = print  # fallback
 
 
 # ── 序列化 helpers ───────────────────────────────────────
@@ -87,6 +95,7 @@ class LLMTracer:
         self.turn_count = 0
 
         self._write_header()
+        log_print(f"[llm_tracer] initialized: {self.trace_file}")
 
     def _write_header(self) -> None:
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -113,6 +122,8 @@ class LLMTracer:
 
         req_json = _pretty_json(request)
         resp_json = _pretty_json(response)
+
+        log_print(f"[llm_tracer] turn {self.turn_count} logged{note_str}")
 
         with open(self.trace_file, "a", encoding="utf-8") as f:
             f.write(f"## Turn {self.turn_count}{note_str}\n\n")
@@ -168,9 +179,11 @@ def wrap_client(client: Any, tracer: LLMTracer) -> Any:
             # 构建一个可读的请求记录
             request = {k: v for k, v in kwargs.items() if k != "client"}
             tracer.log_turn(request=request, response=response, note="Anthropic")
+            log_print(f"Anthropic response: {response}")
             return response
 
         client.messages.create = _traced_anthropic
+        log_print("[llm_tracer] wrapped Anthropic client")
         return client
 
     # OpenAI SDK
@@ -184,6 +197,7 @@ def wrap_client(client: Any, tracer: LLMTracer) -> Any:
             return response
 
         client.chat.completions.create = _traced_openai
+        log_print("[llm_tracer] wrapped OpenAI client")
         return client
 
     raise ValueError("Unknown client type. Expected Anthropic or OpenAI client.")
