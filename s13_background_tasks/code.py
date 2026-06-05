@@ -44,6 +44,18 @@ MEMORY_INDEX = MEMORY_DIR / "MEMORY.md"
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
 
+# ── Tracer ──
+
+try:
+    import sys
+    sys.path.insert(0, str(WORKDIR))
+    from llm_tracer import LLMTracer, wrap_client
+    _tracer = LLMTracer(name="s13")
+    client = wrap_client(client, _tracer)
+except Exception:
+    pass  # tracer is optional
+
+
 # ── Task System (from s12, synced) ──
 
 TASKS_DIR = WORKDIR / ".tasks"
